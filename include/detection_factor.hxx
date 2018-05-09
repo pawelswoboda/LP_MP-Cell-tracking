@@ -231,7 +231,7 @@ public:
   // invoke in general case
   void update_incoming(const INDEX edge_index, const REAL delta)
   {
-    const REAL prev_val = incoming[edge_index];
+    const auto prev_val = incoming[edge_index];
     incoming[edge_index] += delta;
     if(min_incoming_dirty_) {
       return; 
@@ -258,7 +258,7 @@ public:
   // invoke in general case
   void update_outgoing(const INDEX edge_index, const REAL delta)
   {
-    const REAL prev_val = outgoing[edge_index];
+    const auto prev_val = outgoing[edge_index];
     outgoing[edge_index] += delta;
     if(min_outgoing_dirty_) {
       return; 
@@ -344,6 +344,8 @@ public:
   }
 
   REAL detection;
+  //mutable small_vector<REAL,16> incoming;
+  //mutable small_vector<REAL,16> outgoing;
   mutable vector<REAL> incoming;
   mutable vector<REAL> outgoing;
 
@@ -464,7 +466,8 @@ public:
     REAL smallest_taken = std::numeric_limits<REAL>::infinity();
     REAL second_smallest_taken = std::numeric_limits<REAL>::infinity();
     REAL smallest_not_taken = std::numeric_limits<REAL>::infinity();
-    for(INDEX i=0; i<r.incoming.size(); ++i) {
+    const auto incoming_size = r.incoming.size();
+    for(INDEX i=0; i<incoming_size; ++i) {
       const REAL val = r.incoming[i];
       if(edge_taken[i]) {
         const REAL min = std::min(smallest_taken, val);
@@ -565,7 +568,8 @@ public:
     REAL smallest_taken = std::numeric_limits<REAL>::infinity();
     REAL second_smallest_taken = std::numeric_limits<REAL>::infinity();
     REAL smallest_not_taken = std::numeric_limits<REAL>::infinity();
-    for(INDEX i=0; i<r.outgoing.size(); ++i) {
+    const auto outgoing_size = r.outgoing.size();
+    for(INDEX i=0; i<outgoing_size; ++i) {
       const REAL val = r.outgoing[i];
       if(edge_taken[i]) {
         const REAL min = std::min(smallest_taken, val);
@@ -618,8 +622,6 @@ private:
 // message connecting outgoing edge to incoming edge of detection factors between consecutive timeframes
 class transition_message {
 public:
-  constexpr static INDEX update_from_right = 1;
-  constexpr static INDEX update_from_left = 2; 
 
   transition_message(const bool split, const INDEX outgoing_edge_index, const INDEX incoming_edge_index) 
     : 
@@ -635,33 +637,79 @@ public:
   template<typename RIGHT_FACTOR, typename MSG_ARRAY>
   static void SendMessagesToLeft(const RIGHT_FACTOR& rightFactor, MSG_ARRAY msg_begin, MSG_ARRAY msg_end, const REAL omega)
   {
-    //std::cout << "send messages to left with omega = " << omega << "\n";
+    //std::cout << "send transition messages to left with omega = " << omega << "\n";
 
     // check #messages+1 <= no incoming edges
+#ifndef NDEBUG
     {
       INDEX c=0;
       for(auto it = msg_begin; it!=msg_end; ++it)  ++c;
       assert(c+1 <= rightFactor.incoming.size());
     }
-
+#endif 
 
     const REAL detection_outgoing_cost = rightFactor.detection + rightFactor.min_outgoing();
 
     //std::vector<bool> edge_taken(rightFactor.incoming.size(), false);
-    std::bitset<128> edge_taken(false);
+    //std::bitset<128> edge_taken(false);
+    std::array<unsigned char,128> edge_taken;
+    std::fill(edge_taken.begin(), edge_taken.end(), 0);
     assert(rightFactor.incoming.size() <= edge_taken.size());
     for(auto msg_it = msg_begin; msg_it!=msg_end; ++msg_it) {
-      edge_taken[(*msg_it).GetMessageOp().incoming_edge_index_] = true;
+        const auto idx = (*msg_it).GetMessageOp().incoming_edge_index_;
+        assert(edge_taken[idx] == 0);
+        edge_taken[idx] = 1;
     }
 
     REAL smallest_taken = std::numeric_limits<REAL>::infinity();
     REAL second_smallest_taken = std::numeric_limits<REAL>::infinity();
     REAL smallest_not_taken = std::numeric_limits<REAL>::infinity();
-    for(INDEX i=0; i<rightFactor.incoming.size(); ++i) {
-      const REAL val = rightFactor.incoming[i];
+    const auto incoming_size = rightFactor.incoming.size();
+    for(INDEX i=0; i<incoming_size; ++i) {
+      const auto val = rightFactor.incoming[i];
       if(edge_taken[i]) {
-        const REAL min = std::min(smallest_taken, val);
-        const REAL max = std::max(smallest_taken, val);
+        const auto min = std::min(smallest_taken, val);
+        const auto max = std::max(smallest_taken, val);
+        smallest_taken = min;
+        second_smallest_taken = std::min(max, second_smallest_taken);
+      } else {
+        smallest_not_taken = std::min(val, smallest_not_taken); 
+      }
+    }
+    assert(std::min(smallest_taken, smallest_not_taken) == rightFactor.min_incoming());
+
+    const auto set_to_cost = std::min(detection_outgoing_cost + std::min(smallest_not_taken, second_smallest_taken), REAL(0.0));
+
+    for(auto msg_it=msg_begin; msg_it!=msg_end; ++msg_it) {
+        const auto idx = (*msg_it).GetMessageOp().incoming_edge_index_;
+        const auto msg = detection_outgoing_cost + rightFactor.incoming[ idx ] - set_to_cost;
+        (*msg_it)[0] -= omega*msg;
+    } 
+  }
+
+  template<typename RIGHT_FACTOR, typename MSG_ITERATOR>
+  REAL send_messages_to_left_improvement(RIGHT_FACTOR& r, MSG_ITERATOR msg_begin, MSG_ITERATOR msg_end)
+  {
+    const REAL detection_outgoing_cost = r.detection + r.min_outgoing();
+
+    //std::vector<bool> edge_taken(rightFactor.incoming.size(), false);
+    //std::bitset<128> edge_taken(false);
+    std::array<unsigned char,128> edge_taken;
+    std::fill(edge_taken.begin(), edge_taken.end(), 0);
+    assert(r.incoming.size() <= edge_taken.size());
+    for(auto msg_it = msg_begin; msg_it!=msg_end; ++msg_it) {
+      edge_taken[(*msg_it).GetMessageOp().incoming_edge_index_] = 1;
+    }
+
+    REAL smallest_taken = std::numeric_limits<REAL>::infinity();
+    REAL second_smallest_taken = std::numeric_limits<REAL>::infinity();
+    REAL smallest_not_taken = std::numeric_limits<REAL>::infinity();
+    const auto incoming_size = r.incoming.size();
+    for(INDEX i=0; i<incoming_size; ++i) {
+      const auto val = r.incoming[i];
+      if(edge_taken[i]) {
+        const auto min = std::min(smallest_taken, val);
+        const auto max = std::max(smallest_taken, val);
         smallest_taken = min;
         second_smallest_taken = std::min(max, second_smallest_taken);
       } else {
@@ -669,32 +717,97 @@ public:
       }
     }
 
-    const REAL set_to_cost = std::min(detection_outgoing_cost + std::min(smallest_not_taken, second_smallest_taken), REAL(0.0));
+    const auto right_lb = std::min(detection_outgoing_cost + r.min_incoming(), 0.0);
+    const auto new_right_lb = std::min(detection_outgoing_cost + std::min(smallest_not_taken, second_smallest_taken), 0.0);
+
+    REAL left_lb = 0.0;
+    REAL new_left_lb = 0.0;
+    const auto set_to_cost = std::min(detection_outgoing_cost + std::min(smallest_not_taken, second_smallest_taken), REAL(0.0));
 
     for(auto msg_it=msg_begin; msg_it!=msg_end; ++msg_it) {
-      const REAL msg = detection_outgoing_cost + rightFactor.incoming[ (*msg_it).GetMessageOp().incoming_edge_index_ ] - set_to_cost;
-      (*msg_it)[update_from_right] -= omega*msg;
+      const auto diff = detection_outgoing_cost + r.incoming[ (*msg_it).GetMessageOp().incoming_edge_index_ ] - set_to_cost;
+      auto& l = *(*msg_it).GetLeftFactor()->GetFactor();
+      left_lb += l.LowerBound();
+      const auto outgoing_edge_index = (*msg_it).GetMessageOp().outgoing_edge_index_;
+      const auto prev_val = l.outgoing[outgoing_edge_index];
+      l.outgoing[outgoing_edge_index] += diff;
+      const REAL new_outgoing_cost = l.outgoing.min();
+      l.outgoing[outgoing_edge_index] = prev_val;
+      new_left_lb += std::min(0.0, l.min_incoming() + l.detection + new_outgoing_cost); 
     } 
+
+    assert(new_left_lb + new_right_lb - (left_lb + right_lb) >= -eps); 
+    return new_left_lb + new_right_lb - (left_lb + right_lb); 
   }
 
   // send messages from detection factor along incoming edges
   template<typename LEFT_FACTOR, typename MSG_ARRAY>
   static void SendMessagesToRight(const LEFT_FACTOR& leftFactor, MSG_ARRAY msg_begin, MSG_ARRAY msg_end, const REAL omega)
   {
-    const REAL detection_incoming_cost = leftFactor.detection + leftFactor.min_incoming(); //*std::min_element(leftFactor.incoming.begin(), leftFactor.incoming.end());
+    //std::cout << "send transition messages to right with omega = " << omega << "\n";
+
+    const REAL detection_incoming_cost = leftFactor.detection + leftFactor.min_incoming();
 
     //std::vector<bool> edge_taken(leftFactor.outgoing.size(), false);
-    std::bitset<128> edge_taken(false);
-    for(auto msg_it = msg_begin; msg_it!=msg_end; ++msg_it) {
-      edge_taken[(*msg_it).GetMessageOp().outgoing_edge_index_] = true;
-    }
+    //std::bitset<128> edge_taken(false);
+    std::array<unsigned char,128> edge_taken;
     assert(leftFactor.outgoing.size() <= edge_taken.size());
+    std::fill(edge_taken.begin(), edge_taken.end(), 0);
+    for(auto msg_it = msg_begin; msg_it!=msg_end; ++msg_it) {
+        const auto idx = (*msg_it).GetMessageOp().outgoing_edge_index_;
+        edge_taken[idx]++;
+    }
+
+    vector<REAL> outgoing_copy(leftFactor.outgoing); // we need an outgoing copy, since for shared outgoing edges (i.e. branching) we need the value of outgoing twice, yet it may be changed by reparametrization
 
     REAL smallest_taken = std::numeric_limits<REAL>::infinity();
     REAL second_smallest_taken = std::numeric_limits<REAL>::infinity();
     REAL smallest_not_taken = std::numeric_limits<REAL>::infinity();
-    for(INDEX i=0; i<leftFactor.outgoing.size(); ++i) {
-      const REAL val = leftFactor.outgoing[i];
+    const auto outgoing_size = outgoing_copy.size();
+    auto val_it = outgoing_copy.begin();
+    for(std::size_t i=0; i<outgoing_size; ++i, ++val_it) {
+      const REAL val = *val_it;
+      if(edge_taken[i] > 0) {
+        const REAL min = std::min(smallest_taken, val);
+        const REAL max = std::max(smallest_taken, val);
+        smallest_taken = min;
+        second_smallest_taken = std::min(max, second_smallest_taken);
+      } else {
+        smallest_not_taken = std::min(val, smallest_not_taken); 
+      }
+    }
+    assert(std::min(smallest_taken, smallest_not_taken) == leftFactor.min_outgoing());
+
+    const REAL set_to_cost = std::min(detection_incoming_cost + std::min(smallest_not_taken, second_smallest_taken), REAL(0.0));
+     
+    for(auto msg_it=msg_begin; msg_it!=msg_end; ++msg_it) {
+      const auto idx = (*msg_it).GetMessageOp().outgoing_edge_index_ ;
+      assert(edge_taken[idx] > 0);
+      const REAL w = 1.0/REAL(edge_taken[idx]);
+      //const REAL w = (*msg_it).GetMessageOp().split_ ? 0.5 : 1.0;
+      const REAL msg = w*(detection_incoming_cost + outgoing_copy[ idx ] - set_to_cost);
+      (*msg_it)[0] -= omega*msg;
+    } 
+  }
+
+  template<typename LEFT_FACTOR, typename MSG_ITERATOR>
+  REAL send_messages_to_right_improvement(LEFT_FACTOR& l, MSG_ITERATOR msg_begin, MSG_ITERATOR msg_end)
+  {
+    const REAL detection_incoming_cost = l.detection + l.min_incoming();
+
+    std::array<unsigned char,128> edge_taken;
+    std::fill(edge_taken.begin(), edge_taken.end(), 0);
+    for(auto msg_it = msg_begin; msg_it!=msg_end; ++msg_it) {
+      edge_taken[(*msg_it).GetMessageOp().outgoing_edge_index_] = 1;
+    }
+    assert(l.outgoing.size() <= edge_taken.size());
+
+    REAL smallest_taken = std::numeric_limits<REAL>::infinity();
+    REAL second_smallest_taken = std::numeric_limits<REAL>::infinity();
+    REAL smallest_not_taken = std::numeric_limits<REAL>::infinity();
+    const auto outgoing_size = l.outgoing.size();
+    for(INDEX i=0; i<outgoing_size; ++i) {
+      const REAL val = l.outgoing[i];
       if(edge_taken[i]) {
         const REAL min = std::min(smallest_taken, val);
         const REAL max = std::max(smallest_taken, val);
@@ -705,15 +818,33 @@ public:
       }
     }
 
+
+    const auto left_lb = std::min(detection_incoming_cost + l.min_outgoing(), 0.0);
+    const auto new_left_lb = std::min(detection_incoming_cost + std::min(smallest_not_taken, second_smallest_taken), REAL(0.0));
+
+    REAL right_lb = 0.0;
+    REAL new_right_lb = 0.0;
     const REAL set_to_cost = std::min(detection_incoming_cost + std::min(smallest_not_taken, second_smallest_taken), REAL(0.0));
      
-    for(; msg_begin!=msg_end; ++msg_begin) {
-      const REAL w = (*msg_begin).GetMessageOp().split_ ? 0.5 : 1.0;
-      const REAL msg = w*(detection_incoming_cost + leftFactor.outgoing[ (*msg_begin).GetMessageOp().outgoing_edge_index_ ] - set_to_cost);
-      (*msg_begin)[update_from_left] -= omega*msg;
+    for(auto msg_it=msg_begin; msg_it!=msg_end; ++msg_it) {
+      const REAL w = (*msg_it).GetMessageOp().split_ ? 0.5 : 1.0;
+      const auto diff = w*(detection_incoming_cost + l.outgoing[ (*msg_it).GetMessageOp().outgoing_edge_index_ ] - set_to_cost);
+      auto& r = *(*msg_it).GetRightFactor()->GetFactor();
+      right_lb += r.LowerBound();
+
+      const auto incoming_edge_index = (*msg_it).GetMessageOp().incoming_edge_index_;
+      // only do this for positive diff
+      const auto prev_val = r.incoming[incoming_edge_index];
+      r.incoming[incoming_edge_index] += diff;
+      const REAL new_incoming_cost = r.incoming.min();
+      r.incoming[incoming_edge_index] = prev_val; 
+      new_right_lb += std::min(0.0, r.min_outgoing() + r.detection + new_incoming_cost);
     } 
+    assert(new_left_lb + new_right_lb - (left_lb + right_lb) >= -eps); 
+    return new_left_lb + new_right_lb - (left_lb + right_lb); 
   }
 
+/*
   template<typename LEFT_FACTOR, typename RIGHT_FACTOR>
   bool ComputeRightFromLeftPrimal(const LEFT_FACTOR& l, RIGHT_FACTOR& r)
   {
@@ -734,13 +865,29 @@ public:
       return false;
     }
   }
+  */
 
   template<typename RIGHT_FACTOR, typename G2>
   void send_message_to_left(RIGHT_FACTOR& r, G2& msg, const REAL omega)
   {
-    msg[update_from_right] -= omega*r.min_incoming_marginal_diff(incoming_edge_index_);
+    msg[0] -= omega*r.min_incoming_marginal_diff(incoming_edge_index_);
   }
-  
+
+  template<typename LEFT_FACTOR, typename RIGHT_FACTOR>
+  REAL send_message_to_left_improvement(LEFT_FACTOR& l, RIGHT_FACTOR& r) const
+  {
+      const auto right_lb = r.LowerBound();
+      const auto diff = r.min_incoming_marginal_diff(incoming_edge_index_);
+      const auto new_right_lb = std::min(0.0, r.min_incoming() + r.detection_cost() + std::min(r.min_outgoing(), r.outgoing[outgoing_edge_index_] + diff));
+      if(diff >= 0) {
+          return new_right_lb - right_lb;
+      } else {
+          const auto left_lb = l.LowerBound();
+          const auto new_left_lb = std::min(0.0, r.min_outgoing() + r.detection_cost() + std::min(r.min_incoming(), r.incoming[incoming_edge_index_] - diff));
+          return new_left_lb + new_right_lb - (left_lb + right_lb);
+      }
+  }
+
   template<typename RIGHT_FACTOR, typename G2>
   void ReceiveRestrictedMessageFromRight(RIGHT_FACTOR& r, G2& msg)
   { 
@@ -765,7 +912,22 @@ public:
   template<typename LEFT_FACTOR, typename G2>
   void send_message_to_right(LEFT_FACTOR& l, G2& msg, const REAL omega)
   { 
-    msg[update_from_left] -= omega* l.min_outgoing_marginal_diff(outgoing_edge_index_);
+    msg[0] -= omega* l.min_outgoing_marginal_diff(outgoing_edge_index_);
+  }
+
+  template<typename LEFT_FACTOR, typename RIGHT_FACTOR>
+  REAL send_message_to_right_improvement(LEFT_FACTOR& l, RIGHT_FACTOR& r) const
+  {
+      const auto left_lb = l.LowerBound();
+      const auto diff = l.min_outgoing_marginal_diff(outgoing_edge_index_);
+      const auto new_left_lb = std::min(0.0, r.min_outgoing() + r.detection_cost() + std::min(r.min_incoming(), r.incoming[incoming_edge_index_] - diff));
+      if(diff >= 0) {
+          return new_left_lb - left_lb;
+      } else {
+          const auto right_lb = l.LowerBound();
+          const auto new_right_lb = std::min(0.0, r.min_incoming() + r.detection_cost() + std::min(r.min_outgoing(), r.outgoing[outgoing_edge_index_] + diff));
+          return new_left_lb + new_right_lb - (left_lb + right_lb);
+      }
   }
 
   template<typename LEFT_FACTOR, typename G2>
@@ -790,32 +952,14 @@ public:
   template<typename G>
   void RepamLeft(G& l, const REAL msg, const INDEX msg_dim)
   {
-    assert(msg_dim == update_from_left || msg_dim == update_from_right);
-    if(msg_dim == update_from_left) {
-      //l.update_outgoing_valid(outgoing_edge_index_, msg);
+      assert(msg_dim == 0);
       l.update_outgoing(outgoing_edge_index_, msg);
-    } else {
-      assert(msg_dim == update_from_right);
-      l.update_outgoing(outgoing_edge_index_, msg);
-    } 
-
-    //assert(msg_dim == 0);
-    //l.outgoing[outgoing_edge_index_] += msg;
   }
   template<typename G>
   void RepamRight(G& r, const REAL msg, const INDEX msg_dim)
   {
-    assert(msg_dim == update_from_left || msg_dim == update_from_right);
-    if(msg_dim == update_from_left) {
+      assert(msg_dim == 0);
       r.update_incoming(incoming_edge_index_, msg);
-    } else {
-      assert(msg_dim == update_from_right);
-      //r.update_incoming_valid(incoming_edge_index_, msg);
-      r.update_incoming(incoming_edge_index_, msg);
-    }
-    
-    //assert(msg_dim == 0);
-    //r.incoming[incoming_edge_index_] += msg;
   }
 
   template<typename LEFT_FACTOR, typename RIGHT_FACTOR>
@@ -849,6 +993,7 @@ private:
 // simplex x1 + ... + xn <= 1
 // to account for overlapping detections: only one can be active
 class at_most_one_cell_factor : public vector<REAL> {
+//class at_most_one_cell_factor : public small_vector<REAL,4> {
   // to do: save minimum and second minimum value
 
   friend class at_most_one_cell_message;
@@ -860,6 +1005,7 @@ public:
   constexpr static INDEX primal_infeasible = std::numeric_limits<INDEX>::max()-2;
 
    at_most_one_cell_factor(const INDEX size) : vector<REAL>(size, 0.0)
+   //at_most_one_cell_factor(const INDEX size) : small_vector<REAL,4>(size, 0.0)
    {}
 
    REAL LowerBound() const {
@@ -878,7 +1024,7 @@ public:
      }
    }
 
-   void init_primal() { primal_ = no_primal_decision; }
+   void init_primal() { primal_ = no_primal_active; }
    template<class ARCHIVE> void serialize_primal(ARCHIVE& ar) { ar(primal_); }
    template<class ARCHIVE> void serialize_dual(ARCHIVE& ar) { ar( *static_cast<vector<REAL>*>(this) ); }
    auto export_variables() { return std::tie( *static_cast<vector<REAL>*>(this) ); }
@@ -953,20 +1099,13 @@ public:
   void ComputeRightFromLeftPrimal(const LEFT_FACTOR& l, RIGHT_FACTOR& r)
   {
     if(l.detection_active()) {
-      if(r.primal_ == at_most_one_cell_factor::no_primal_decision || r.primal_ == at_most_one_cell_factor_index_) {
         r.primal_ = at_most_one_cell_factor_index_;
-      } else {
-        r.primal_ = at_most_one_cell_factor::primal_infeasible; // more than two detections active
-      }
-    } else {
-      if(r.primal_ == r.no_primal_decision) {
-        r.primal_ = r.no_primal_active;
-      }
     }
   }
 
+  // it is more effective to send messages one by one
   template<typename LEFT_FACTOR, typename MSG_ARRAY>
-  static void SendMessagesToRight(const LEFT_FACTOR& l, MSG_ARRAY msg_begin, MSG_ARRAY msg_end, const REAL omega)
+  static void SendMessagesToRight_deactivated(const LEFT_FACTOR& l, MSG_ARRAY msg_begin, MSG_ARRAY msg_end, const REAL omega)
   {
     const REAL delta = l.min_detection_cost();
     assert(!std::isnan(delta));
@@ -976,6 +1115,30 @@ public:
     for(; msg_begin!=msg_end; ++msg_begin) {
       (*msg_begin)[0] -= omega/REAL(no_messages)*delta;
     } 
+  }
+
+  template<typename LEFT_FACTOR, typename MSG_ITERATOR>
+  static REAL send_messages_to_right_improvement(LEFT_FACTOR& l, MSG_ITERATOR msg_begin, MSG_ITERATOR msg_end)
+  {
+      const auto diff = l.min_detection_cost();
+      const auto left_lb = l.LowerBound();
+      const auto new_left_lb = 0.0;
+
+      std::size_t no_messages = 0;
+      REAL right_lb = 0.0;
+      REAL new_right_lb = 0.0;
+      for(auto msg_it=msg_begin; msg_it!=msg_end; ++msg_it) { ++no_messages; }
+      for(auto msg_it=msg_begin; msg_it!=msg_end; ++msg_it) {
+          auto* r = (*msg_it)->GetRightFactor()->GetFactor();
+          const auto index = (*msg_it).GetMessageOp().at_most_one_cell_factor_index_;
+          right_lb += r->LowerBound();
+          (*r)[index] += 1.0/REAL(no_messages)*diff;
+          new_right_lb += r->LowerBound();
+          (*r)[index] -= 1.0/REAL(no_messages)*diff;
+      }
+
+      assert(new_left_lb + new_right_lb - (left_lb + right_lb) >= -eps); 
+      return new_left_lb + new_right_lb - (left_lb + right_lb);
   }
 
 
@@ -1020,19 +1183,22 @@ public:
   template<typename RIGHT_FACTOR, typename MSG_ARRAY>
   static void SendMessagesToLeft(const RIGHT_FACTOR& rightFactor, MSG_ARRAY msg_begin, MSG_ARRAY msg_end, const REAL omega)
   {
-    assert(std::distance(msg_begin, msg_end) <= rightFactor.size());
+    //assert(std::distance(msg_begin, msg_end) <= rightFactor.size()); // std::distance does not work currently on the message iterator.
     std::vector<bool> edge_taken(rightFactor.size(), false);
-    for(auto it=msg_begin; it!=msg_end; ++it) {
-      assert( (*msg_begin).GetMessageOp().at_most_one_cell_factor_index_ < edge_taken.size() );
-      assert(edge_taken[ (*msg_begin).GetMessageOp().at_most_one_cell_factor_index_ ] == false);
-      edge_taken[ (*msg_begin).GetMessageOp().at_most_one_cell_factor_index_ ] = true;
+    for(auto msg_it=msg_begin; msg_it!=msg_end; ++msg_it) {
+        const auto idx = (*msg_it).GetMessageOp().at_most_one_cell_factor_index_;
+        assert( idx < edge_taken.size() );
+        assert(edge_taken[ idx ] == false);
+        edge_taken[ idx ] = true;
     }
+    assert(std::count(edge_taken.begin(), edge_taken.end(), false) == 0);
 
     REAL smallest_taken = std::numeric_limits<REAL>::infinity();
     REAL second_smallest_taken = std::numeric_limits<REAL>::infinity();
     REAL smallest_not_taken = 0.0;
     
-    for(INDEX i=0; i<rightFactor.size(); ++i) {
+    const auto right_factor_size = rightFactor.size();
+    for(INDEX i=0; i<right_factor_size; ++i) {
       const REAL val = rightFactor[i];
       if(edge_taken[i]) {
         const REAL min = std::min(smallest_taken, val);
@@ -1051,6 +1217,13 @@ public:
     }
   }
 
+  template<typename RIGHT_FACTOR, typename MSG_ITERATOR>
+  static REAL send_messages_to_left_improvement(RIGHT_FACTOR& r, MSG_ITERATOR msg_begin, MSG_ITERATOR msg_end)
+  {
+      assert(false);
+      return 0.0; 
+  }
+
 
   template<typename LEFT_FACTOR, typename G2>
   void send_message_to_right(const LEFT_FACTOR& l, G2& msg, const REAL omega = 1.0)
@@ -1058,6 +1231,25 @@ public:
     // make cost of detection same as cost of non-detection
     msg[0] -= omega*l.min_detection_cost();
   }
+
+    template<typename LEFT_FACTOR, typename RIGHT_FACTOR>
+    REAL send_message_to_right_improvement(LEFT_FACTOR& l, RIGHT_FACTOR& r) const
+    {
+        const auto left_lb = l.LowerBound();
+        const auto new_left_lb = 0.0;
+
+        const auto diff = l.min_detection_cost();
+
+        const auto right_lb = r.LowerBound();
+        const auto prev_val = r[at_most_one_cell_factor_index_];
+        r[at_most_one_cell_factor_index_] += diff;
+        const auto new_right_lb = r.LowerBound();
+        r[at_most_one_cell_factor_index_] = prev_val;
+
+        assert(new_left_lb + new_right_lb - (left_lb + right_lb) >= -eps);
+        return new_left_lb + new_right_lb - (left_lb + right_lb);
+    }
+
   template<typename RIGHT_FACTOR, typename G2>
   void send_message_to_left(RIGHT_FACTOR& r, G2& msg, const REAL omega = 1.0)
   {
@@ -1069,12 +1261,27 @@ public:
     msg[0] -= omega*(cur_detection_cost - rest_cost);
   }
 
+    template<typename LEFT_FACTOR, typename RIGHT_FACTOR>
+    REAL send_message_to_left_improvement(LEFT_FACTOR& l, RIGHT_FACTOR& r) const
+    {
+        const auto cur_detection_cost = r[at_most_one_cell_factor_index_];
+        r[at_most_one_cell_factor_index_] = std::numeric_limits<REAL>::infinity();
+        const auto rest_cost = r.LowerBound();
+        r[at_most_one_cell_factor_index_] = cur_detection_cost;
+
+        const auto diff_right = rest_cost;
+        const auto left_lb = l.LowerBound();
+        const auto new_left_lb = std::min(0.0, l.min_incoming() + r.detection + (cur_detection_cost - rest_cost) + r.min_outgoing());
+
+        return diff_right + new_left_lb - left_lb;
+    }
+
   template<typename LEFT_FACTOR, typename RIGHT_FACTOR>
   bool CheckPrimalConsistency(const LEFT_FACTOR& l, const RIGHT_FACTOR& r) const
   {
     //assert(false); 
     if(r.primal_ == r.primal_infeasible) {
-      std::cout << "exclusion constraints not satisfied!\n";
+      //std::cout << "exclusion constraints not satisfied!\n";
       return false;
     }
     if(l.detection_active()) {
@@ -1119,7 +1326,7 @@ private:
 // first entry: lower exit transition. second entry: upper transition messages (excluding exit transition)
 // x_1 = 1 implies x_2 = 0
 // equivalent to x_1 + x_2 <= 1
-class exit_constraint_factor : public std::array<REAL,2> {
+class exit_constraint_factor : public array<REAL,2> {
   template<exit_constraint_position POSITION> friend class exit_constraint_message;
 public:
 
@@ -1127,7 +1334,7 @@ public:
   constexpr static INDEX no_primal_active = std::numeric_limits<INDEX>::max()-1;
   constexpr static INDEX primal_infeasible = std::numeric_limits<INDEX>::max()-2; 
 
-  using repam_type = std::array<REAL,2>;
+  using repam_type = array<REAL,2>;
   REAL LowerBound() const 
   {
     return std::min(REAL(0.0), std::min( (*this)[0], (*this)[1] )); 
@@ -1145,7 +1352,7 @@ public:
 
   void init_primal() { primal_ = no_primal_decision; }
   template<class ARCHIVE> void serialize_primal(ARCHIVE& ar) { ar( primal_ ); }
-  template<class ARCHIVE> void serialize_dual(ARCHIVE& ar) { ar( *static_cast<repam_type*>(this) ); }
+  template<class ARCHIVE> void serialize_dual(ARCHIVE& ar) { ar( binary_data<REAL>(&(*this)[0], 2) ); }
   auto export_variables() { return std::tie( *static_cast<repam_type*>(this) ); }
 
   template<typename SOLVER>
@@ -1196,7 +1403,8 @@ public:
       const INDEX i = l.outgoing.size()-1;
       l.update_outgoing(i, msg);
     } else {
-      for(INDEX i=0; i<l.outgoing.size()-1; ++i) {
+      const auto outgoing_size = l.outgoing.size();
+      for(INDEX i=0; i<outgoing_size-1; ++i) {
         l.update_outgoing(i, msg);
       }
     }

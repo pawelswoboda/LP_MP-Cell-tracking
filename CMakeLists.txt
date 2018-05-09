@@ -10,6 +10,7 @@ add_definitions(-march=native)
 include_directories(include)
 add_subdirectory(external/LP_MP)
 include_directories(external/PEGTL)
+include_directories(external/MCF-SSP)
 
-add_subdirectory(test)
+#add_subdirectory(test)
 add_subdirectory(src)

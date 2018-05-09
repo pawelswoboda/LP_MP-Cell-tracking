@@ -111,6 +111,7 @@ template<typename DETECTION_FACTOR_CONTAINER>
 class basic_cell_tracking_constructor {
 public:
   using detection_factor_container = DETECTION_FACTOR_CONTAINER;
+  using FMC = typename detection_factor_container::FMC;
   //using at_most_one_cell_factor_container = AT_MOST_ONE_CELL_FACTOR_CONTAINER;
   //using exclusion_factor = AT_MOST_ONE_CELL_FACTOR_CONTAINER;
 
@@ -129,7 +130,7 @@ public:
     detection_factors_.resize(t);
   }
 
-  virtual detection_factor_container* add_detection_hypothesis_impl(LP& lp,
+  virtual detection_factor_container* add_detection_hypothesis_impl(LP<FMC>& lp,
       const INDEX timestep, const INDEX hypothesis_id, 
       const REAL detection_cost, const REAL appearance_cost, const REAL disappearance_cost, 
       const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges, 
@@ -168,18 +169,18 @@ public:
     return f; 
   }
 
-  virtual void add_cell_transition_impl(LP& lp,
+  virtual void add_cell_transition_impl(LP<FMC>& lp,
 		  const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next, const INDEX next_cell, const REAL cost,
 		  const INDEX outgoing_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, 
-      const INDEX incoming_edge_index, const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges,
+          const INDEX incoming_edge_index, const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges,
 		  detection_factor_container* out_cell_factor, detection_factor_container* in_cell_factor) = 0;
 
-  virtual void add_cell_division_impl(LP& lp,
+  virtual void add_cell_division_impl(LP<FMC>& lp,
 		  const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next_1, const INDEX next_cell_1, const INDEX timestep_next_2, const INDEX next_cell_2, const REAL cost,
-		  const INDEX outgoing_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, 
-      const INDEX incoming_edge_index_1, const INDEX no_incoming_transition_edges_1, const INDEX no_incoming_division_edges_1, 
-      const INDEX incoming_edge_index_2, const INDEX no_incoming_transition_edges_2, const INDEX no_incoming_division_edges_2, 
-		  detection_factor_container* out_cell_factor, detection_factor_container* in_cell_factor_1, detection_factor_container* in_cell_factor_2) = 0;
+          const INDEX outgoing_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, 
+          const INDEX incoming_edge_index_1, const INDEX no_incoming_transition_edges_1, const INDEX no_incoming_division_edges_1, 
+          const INDEX incoming_edge_index_2, const INDEX no_incoming_transition_edges_2, const INDEX no_incoming_division_edges_2, 
+          detection_factor_container* out_cell_factor, detection_factor_container* in_cell_factor_1, detection_factor_container* in_cell_factor_2) = 0;
 		
   template<typename LP_TYPE>
   void add_cell_transition(LP_TYPE& lp, const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next, const INDEX next_cell, const REAL cost) 
@@ -230,7 +231,7 @@ public:
 		    out_cell_factor, in_cell_factor_1, in_cell_factor_2); 
   }
 
-  virtual void add_exclusion_constraint_impl(LP& lp, std::vector<DETECTION_FACTOR_CONTAINER*> factors) = 0;
+  virtual void add_exclusion_constraint_impl(LP<FMC>& lp, std::vector<DETECTION_FACTOR_CONTAINER*> factors) = 0;
 
   template<typename LP_TYPE, typename ITERATOR>
   void add_exclusion_constraint(LP_TYPE& lp, ITERATOR begin, ITERATOR end) // iterator points to std::array<INDEX,2>
@@ -273,8 +274,10 @@ public:
     add_exclusion_constraint_impl(lp, factors);
   }
 
-  template<typename LP_TYPE>
-  void order_factors(LP_TYPE& lp) const
+  virtual void begin(LP<FMC>& lp, const std::size_t no_cell_detection_hypotheses, const std::size_t no_transitions, const std::size_t no_divisions)
+  {}
+
+  virtual void end(LP<FMC>& lp)
   {
     if(debug()) { std::cout << "order factors\n"; }
 
@@ -289,6 +292,12 @@ public:
       }
       for(INDEX i=1; i<detection_factors_[t].size(); ++i) {
         lp.AddFactorRelation(detection_factors_[t][i-1], detection_factors_[t][i]);
+      }
+    }
+
+    for(INDEX t=0; t<detection_factors_.size(); ++t) {
+      for(INDEX i=0; i<detection_factors_[t].size()-1; ++i) {
+          lp.put_in_same_partition(detection_factors_[t][i], detection_factors_[t][i+1]);
       }
     }
   }
@@ -360,6 +369,10 @@ public:
   }
   */
 
+public:
+  // make protected again
+  std::vector<std::size_t> cumulative_sum_cell_detection_factors;
+
 protected:
   using detection_factors_storage = std::vector<std::vector<DETECTION_FACTOR_CONTAINER*>>;
   detection_factors_storage detection_factors_;
@@ -369,26 +382,30 @@ protected:
   using exclusion_factor_storage = std::vector<exclusion_item>;
   exclusion_factor_storage exclusions_; // hold all exclusions in a single array. delimiter is std::numeric_limits<INDEX>::max(). First entry in segment is timestep, followed by hypothesis ids
 
-  LP* lp_;
+
+  LP<FMC>* lp_;
 };
 
 template<typename BASIC_CELL_TRACKING_CONSTRUCTOR, typename AT_MOST_ONE_CELL_FACTOR_CONTAINER, typename AT_MOST_ONE_CELL_MESSAGE_CONTAINER>
 class cell_tracking_exclusion_constructor : public BASIC_CELL_TRACKING_CONSTRUCTOR {
 public:
   using detection_factor_container = typename BASIC_CELL_TRACKING_CONSTRUCTOR::detection_factor_container;
+  using FMC = typename detection_factor_container::FMC;
   using at_most_one_cell_factor_container = AT_MOST_ONE_CELL_FACTOR_CONTAINER;
   using exclusion_factor = AT_MOST_ONE_CELL_FACTOR_CONTAINER;
 
   using BASIC_CELL_TRACKING_CONSTRUCTOR::BASIC_CELL_TRACKING_CONSTRUCTOR;
 
-  void add_exclusion_constraint_impl(LP& lp, const std::vector<detection_factor_container*> factors) // iterator points to std::array<INDEX,2>
+  void add_exclusion_constraint_impl(LP<FMC>& lp, const std::vector<detection_factor_container*> factors) // iterator points to std::array<INDEX,2>
   {
-    auto* e = new AT_MOST_ONE_CELL_FACTOR_CONTAINER(factors.size());
-    lp.AddFactor(e);
+    auto* e = lp.template add_factor<AT_MOST_ONE_CELL_FACTOR_CONTAINER>(factors.size());
     INDEX msg_idx = 0;
     for(auto* f : factors) {
-      auto* m = new AT_MOST_ONE_CELL_MESSAGE_CONTAINER(msg_idx++, f, e);
-      lp.AddMessage(m); 
+        lp.template add_message<AT_MOST_ONE_CELL_MESSAGE_CONTAINER>(f, e, msg_idx++);
+        lp.template put_in_same_partition(f,e);
+
+        //lp.ForwardPassFactorRelation(e, f);
+        //lp.BackwardPassFactorRelation(e, f);
 
       //if(f != f_last) {
       //  lp.ForwardPassFactorRelation(f,e);
@@ -412,15 +429,15 @@ public:
   using BASIC_CELL_TRACKING_CONSTRUCTOR::BASIC_CELL_TRACKING_CONSTRUCTOR;
 
   using detection_factor_container = typename BASIC_CELL_TRACKING_CONSTRUCTOR::detection_factor_container;
+  using FMC = typename detection_factor_container::FMC;
 
-  virtual detection_factor_container* add_detection_hypothesis_impl(LP& lp,
+  virtual detection_factor_container* add_detection_hypothesis_impl(LP<FMC>& lp,
       const INDEX timestep, const INDEX hypothesis_id, 
       const REAL detection_cost, const REAL appearance_cost, const REAL disappearance_cost, 
       const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges, 
       const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges) 
   {
-    auto* f = new detection_factor_container(no_incoming_transition_edges, no_incoming_division_edges, no_outgoing_transition_edges, no_outgoing_division_edges, detection_cost, appearance_cost, disappearance_cost); 
-    lp.AddFactor(f);
+    auto* f = lp.template add_factor<detection_factor_container>(no_incoming_transition_edges, no_incoming_division_edges, no_outgoing_transition_edges, no_outgoing_division_edges, detection_cost, appearance_cost, disappearance_cost);
     return f;
   }
 };
@@ -431,6 +448,7 @@ public:
   using BASIC_CELL_TRACKING_CONSTRUCTOR::BASIC_CELL_TRACKING_CONSTRUCTOR;
   using transition_message_container = TRANSITION_MESSAGE_CONTAINER;
   using detection_factor_container = typename BASIC_CELL_TRACKING_CONSTRUCTOR::detection_factor_container;
+  using FMC = typename detection_factor_container::FMC;
 
   //void set_number_of_timesteps(const INDEX t)
   //{
@@ -438,28 +456,25 @@ public:
   //  detection_factors_.resize(t);
   //}
 
-  void add_cell_transition_impl(LP& lp,
+  void add_cell_transition_impl(LP<FMC>& lp,
 		  const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next, const INDEX next_cell, const REAL cost,
 		  const INDEX outgoing_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, 
       const INDEX incoming_edge_index, const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges,
 		  detection_factor_container* out_cell_factor, detection_factor_container* in_cell_factor)
   {
-	  auto* m = new TRANSITION_MESSAGE_CONTAINER(out_cell_factor, in_cell_factor, false, outgoing_edge_index, incoming_edge_index);
-	  lp.AddMessage(m); 
+      lp.template add_message<TRANSITION_MESSAGE_CONTAINER>( out_cell_factor, in_cell_factor, false, outgoing_edge_index, incoming_edge_index);
   }
 
-  void add_cell_division_impl(LP& lp,
+  void add_cell_division_impl(LP<FMC>& lp,
 		  const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next_1, const INDEX next_cell_1, const INDEX timestep_next_2, const INDEX next_cell_2, const REAL cost,
 		  const INDEX outgoing_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, 
       const INDEX incoming_edge_index_1, const INDEX no_incoming_transition_edges_1, const INDEX no_incoming_division_edges_1, 
       const INDEX incoming_edge_index_2, const INDEX no_incoming_transition_edges_2, const INDEX no_incoming_division_edges_2, 
 		  detection_factor_container* out_cell_factor, detection_factor_container* in_cell_factor_1, detection_factor_container* in_cell_factor_2)
   {
-	  auto* m1 = new TRANSITION_MESSAGE_CONTAINER(out_cell_factor, in_cell_factor_1, true, no_outgoing_transition_edges + outgoing_edge_index, no_incoming_transition_edges_1 + incoming_edge_index_1);
-	  lp.AddMessage(m1);
+	  lp.template add_message<TRANSITION_MESSAGE_CONTAINER>(out_cell_factor, in_cell_factor_1, true, no_outgoing_transition_edges + outgoing_edge_index, no_incoming_transition_edges_1 + incoming_edge_index_1);
 
-	  auto* m2 = new TRANSITION_MESSAGE_CONTAINER(out_cell_factor, in_cell_factor_2, true, no_outgoing_transition_edges + outgoing_edge_index, no_incoming_transition_edges_2 + incoming_edge_index_2);
-	  lp.AddMessage(m2); 
+	  lp.template add_message<TRANSITION_MESSAGE_CONTAINER>(out_cell_factor, in_cell_factor_2, true, no_outgoing_transition_edges + outgoing_edge_index, no_incoming_transition_edges_2 + incoming_edge_index_2);
   }
 };
 
@@ -476,6 +491,7 @@ public:
 
   using BASIC_CELL_TRACKING_CONSTRUCTOR::BASIC_CELL_TRACKING_CONSTRUCTOR;
   using detection_factor_container = typename BASIC_CELL_TRACKING_CONSTRUCTOR::detection_factor_container;
+  using FMC = typename detection_factor_container::FMC;
   using mapping_edge_factor_container = MAPPING_EDGE_FACTOR_CONTAINER;
   using division_edge_factor_container = DIVISION_EDGE_FACTOR_CONTAINER;
   using incoming_mapping_edge_message_container = INCOMING_MAPPING_EDGE_MESSAGE_CONTAINER;
@@ -484,7 +500,7 @@ public:
   using outgoing_division_edge_message_container = OUTGOING_DIVISION_EDGE_MESSAGE_CONTAINER;
 
 /*
-  detection_factor_container* add_detection_hypothesis_impl(LP& lp,
+  detection_factor_container* add_detection_hypothesis_impl(LP<FMC>& lp,
       const INDEX timestep, const INDEX hypothesis_id,
       const REAL detection_cost, const REAL appearance_cost, const REAL disappearance_cost,
       const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges,
@@ -494,45 +510,35 @@ public:
   } 
 */
 
-  void add_cell_transition_impl(LP& lp,
+  void add_cell_transition_impl(LP<FMC>& lp,
 		  const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next, const INDEX next_cell, const REAL cost,
 		  const INDEX outgoing_edge_index, const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges, 
       const INDEX incoming_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges,
 		  detection_factor_container* out_cell_factor, detection_factor_container* in_cell_factor)
   {
-    auto* f = new MAPPING_EDGE_FACTOR_CONTAINER(0.0);
-    lp.AddFactor(f);
+    auto* f = lp.template add_factor<MAPPING_EDGE_FACTOR_CONTAINER>(0.0);
 
-    auto* m_outgoing = new OUTGOING_MAPPING_EDGE_MESSAGE_CONTAINER(f, out_cell_factor, outgoing_edge_index, false);
-    lp.AddMessage(m_outgoing);
-    auto* m_incoming = new INCOMING_MAPPING_EDGE_MESSAGE_CONTAINER(f, in_cell_factor, incoming_edge_index);
-    lp.AddMessage(m_incoming);
+    lp.template add_message<OUTGOING_MAPPING_EDGE_MESSAGE_CONTAINER>(f, out_cell_factor, outgoing_edge_index, false);
+    lp.template add_message<INCOMING_MAPPING_EDGE_MESSAGE_CONTAINER>(f, in_cell_factor, incoming_edge_index);
     lp.AddFactorRelation(out_cell_factor, f);
     lp.AddFactorRelation(f, in_cell_factor);
   }
 
-  void add_cell_division_impl(LP& lp,
+  void add_cell_division_impl(LP<FMC>& lp,
 		  const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next_1, const INDEX next_cell_1, const INDEX timestep_next_2, const INDEX next_cell_2, const REAL cost,
 		  const INDEX outgoing_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, 
       const INDEX incoming_edge_index_1, const INDEX no_incoming_transition_edges_1, const INDEX no_incoming_division_edges_1, 
       const INDEX incoming_edge_index_2, const INDEX no_incoming_transition_edges_2, const INDEX no_incoming_division_edges_2, 
 		  detection_factor_container* out_cell_factor, detection_factor_container* in_cell_factor_1, detection_factor_container* in_cell_factor_2)
   {
-    auto* f_1 = new DIVISION_EDGE_FACTOR_CONTAINER(0.0);
-    lp.AddFactor(f_1);
-    auto* f_2 = new DIVISION_EDGE_FACTOR_CONTAINER(0.0);
-    lp.AddFactor(f_2);
+    auto* f_1 = lp.template add_factor<DIVISION_EDGE_FACTOR_CONTAINER>(0.0);
+    auto* f_2 = lp.template add_factor<DIVISION_EDGE_FACTOR_CONTAINER>(0.0);
 
-    auto* m_outgoing_1 = new OUTGOING_DIVISION_EDGE_MESSAGE_CONTAINER(f_1, out_cell_factor, no_outgoing_transition_edges + outgoing_edge_index, true);
-    auto* m_outgoing_2 = new OUTGOING_DIVISION_EDGE_MESSAGE_CONTAINER(f_2, out_cell_factor, no_outgoing_transition_edges + outgoing_edge_index, true);
+    lp.template add_message<OUTGOING_DIVISION_EDGE_MESSAGE_CONTAINER>(f_1, out_cell_factor, no_outgoing_transition_edges + outgoing_edge_index, true);
+    lp.template add_message<OUTGOING_DIVISION_EDGE_MESSAGE_CONTAINER>(f_2, out_cell_factor, no_outgoing_transition_edges + outgoing_edge_index, true);
 
-    auto* m_incoming_1 = new INCOMING_DIVISION_EDGE_MESSAGE_CONTAINER(f_1, in_cell_factor_1, no_incoming_transition_edges_1 + incoming_edge_index_1);
-    auto* m_incoming_2 = new INCOMING_DIVISION_EDGE_MESSAGE_CONTAINER(f_2, in_cell_factor_2, no_incoming_transition_edges_2 + incoming_edge_index_2);
-
-    lp.AddMessage(m_outgoing_1);
-    lp.AddMessage(m_outgoing_2);
-    lp.AddMessage(m_incoming_1);
-    lp.AddMessage(m_incoming_2);
+    lp.template add_message<INCOMING_DIVISION_EDGE_MESSAGE_CONTAINER>(f_1, in_cell_factor_1, no_incoming_transition_edges_1 + incoming_edge_index_1);
+    lp.template add_message<INCOMING_DIVISION_EDGE_MESSAGE_CONTAINER>(f_2, in_cell_factor_2, no_incoming_transition_edges_2 + incoming_edge_index_2);
 
     lp.AddFactorRelation(out_cell_factor, f_1);
     lp.AddFactorRelation(out_cell_factor, f_2);
@@ -545,6 +551,7 @@ template<typename CELL_TRACKING_CONSTRUCTOR>
 class cell_tracking_with_division_distance_constructor : public CELL_TRACKING_CONSTRUCTOR {
 public:
   using detection_factor_container = typename CELL_TRACKING_CONSTRUCTOR::detection_factor_container;
+  using FMC = typename detection_factor_container::FMC;
   //using transition_message_container = typename CELL_TRACKING_CONSTRUCTOR::transition_message_container;
   using CELL_TRACKING_CONSTRUCTOR::CELL_TRACKING_CONSTRUCTOR;
 
@@ -554,7 +561,7 @@ public:
   }
   INDEX division_distance() const { return division_distance_; }
 
-  virtual detection_factor_container* add_detection_hypothesis_impl(LP& lp,
+  virtual detection_factor_container* add_detection_hypothesis_impl(LP<FMC>& lp,
       const INDEX timestep, const INDEX hypothesis_id,
       const REAL detection_cost, const REAL appearance_cost, const REAL disappearance_cost,
       const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges,
@@ -562,8 +569,8 @@ public:
   {
     assert(division_distance_ >= 2);
 
-    auto* f = new detection_factor_container(no_incoming_transition_edges, no_incoming_division_edges, no_outgoing_transition_edges, no_outgoing_division_edges, detection_cost, appearance_cost, disappearance_cost, division_distance_);
-    lp.AddFactor(f);
+    auto* f = lp.template add_factor<detection_factor_container>(no_incoming_transition_edges, no_incoming_division_edges, no_outgoing_transition_edges, no_outgoing_division_edges, detection_cost, appearance_cost, disappearance_cost, division_distance_);
+    return f;
   }
   
 
@@ -614,6 +621,7 @@ template<typename CELL_TRACKING_CONSTRUCTOR,
 class cell_tracking_with_division_distance_and_duplicate_edges_constructor : public CELL_TRACKING_CONSTRUCTOR {
 public:
   using detection_factor_container = typename CELL_TRACKING_CONSTRUCTOR::detection_factor_container;
+  using FMC = typename detection_factor_container::FMC;
   using CELL_TRACKING_CONSTRUCTOR::CELL_TRACKING_CONSTRUCTOR;
   using mapping_edge_factor_container = MAPPING_EDGE_FACTOR_CONTAINER;
   using division_edge_factor_container = DIVISION_EDGE_FACTOR_CONTAINER;
@@ -622,45 +630,36 @@ public:
   using incoming_division_edge_message_container = INCOMING_DIVISION_EDGE_MESSAGE_CONTAINER;
   using outgoing_division_edge_message_container = OUTGOING_DIVISION_EDGE_MESSAGE_CONTAINER;
 
-  void add_cell_transition_impl(LP& lp,
+  void add_cell_transition_impl(LP<FMC>& lp,
                   const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next, const INDEX next_cell, const REAL cost,
                   const INDEX outgoing_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, 
                   const INDEX incoming_edge_index, const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges,
                   detection_factor_container* out_cell_factor, detection_factor_container* in_cell_factor)
   {
-    auto* f = new mapping_edge_factor_container(0.0, this->division_distance());
-    lp.AddFactor(f);
+    auto* f = lp.template add_factor<mapping_edge_factor_container>(0.0, this->division_distance());
 
-    auto* m_outgoing = new outgoing_mapping_edge_message_container(f, out_cell_factor, outgoing_edge_index);
-    lp.AddMessage(m_outgoing);
-    auto* m_incoming = new incoming_mapping_edge_message_container(f, in_cell_factor, incoming_edge_index);
-    lp.AddMessage(m_incoming);
+    lp.template add_message<outgoing_mapping_edge_message_container>(f, out_cell_factor, outgoing_edge_index);
+    lp.template add_message<incoming_mapping_edge_message_container>(f, in_cell_factor, incoming_edge_index);
+
     lp.AddFactorRelation(out_cell_factor, f);
     lp.AddFactorRelation(f, in_cell_factor);
   }
 
-  void add_cell_division_impl(LP& lp,
+  void add_cell_division_impl(LP<FMC>& lp,
                   const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next_1, const INDEX next_cell_1, const INDEX timestep_next_2, const INDEX next_cell_2, const REAL cost,
                   const INDEX outgoing_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, 
                   const INDEX incoming_edge_index_1, const INDEX no_incoming_transition_edges_1, const INDEX no_incoming_division_edges_1, 
                   const INDEX incoming_edge_index_2, const INDEX no_incoming_transition_edges_2, const INDEX no_incoming_division_edges_2, 
                   detection_factor_container* out_cell_factor, detection_factor_container* in_cell_factor_1, detection_factor_container* in_cell_factor_2)
   {
-    auto* f_1 = new division_edge_factor_container(0.0);
-    lp.AddFactor(f_1);
-    auto* f_2 = new division_edge_factor_container(0.0);
-    lp.AddFactor(f_2);
+    auto* f_1 = lp.template add_factor<division_edge_factor_container>(0.0);
+    auto* f_2 = lp.template add_factor<division_edge_factor_container>(0.0);
 
-    auto* m_outgoing_1 = new outgoing_division_edge_message_container(f_1, out_cell_factor, outgoing_edge_index);
-    auto* m_outgoing_2 = new outgoing_division_edge_message_container(f_2, out_cell_factor, outgoing_edge_index);
+    lp.template add_message<outgoing_division_edge_message_container>(f_1, out_cell_factor, outgoing_edge_index);
+    lp.template add_message<outgoing_division_edge_message_container>(f_2, out_cell_factor, outgoing_edge_index);
 
-    auto* m_incoming_1 = new incoming_division_edge_message_container(f_1, in_cell_factor_1, incoming_edge_index_1);
-    auto* m_incoming_2 = new incoming_division_edge_message_container(f_2, in_cell_factor_2, incoming_edge_index_2);
-
-    lp.AddMessage(m_outgoing_1);
-    lp.AddMessage(m_outgoing_2);
-    lp.AddMessage(m_incoming_1);
-    lp.AddMessage(m_incoming_2);
+    lp.template add_message<incoming_division_edge_message_container>(f_1, in_cell_factor_1, incoming_edge_index_1);
+    lp.template add_message<incoming_division_edge_message_container>(f_2, in_cell_factor_2, incoming_edge_index_2);
 
     lp.AddFactorRelation(out_cell_factor, f_1);
     lp.AddFactorRelation(out_cell_factor, f_2);
@@ -685,6 +684,7 @@ class cell_tracking_division_distance_conversion_constructor
 {
 public:
   using detection_factor_container = typename CELL_TRACKING_CONSTRUCTOR::detection_factor_container;
+  using FMC = typename detection_factor_container::FMC;
   using at_most_one_cell_factor_container = typename CELL_TRACKING_CONSTRUCTOR::at_most_one_cell_factor_container;
   using exclusion_factor = typename CELL_TRACKING_CONSTRUCTOR::exclusion_factor;
 
@@ -894,8 +894,9 @@ class cell_tracking_fine_decomposition_constructor : public BASIC_CELL_TRACKING_
 public:
   using BASIC_CELL_TRACKING_CONSTRUCTOR::BASIC_CELL_TRACKING_CONSTRUCTOR;
   using detection_factor_container = typename BASIC_CELL_TRACKING_CONSTRUCTOR::detection_factor_container;
+  using FMC = typename detection_factor_container::FMC;
 
-  virtual detection_factor_container* add_detection_hypothesis_impl(LP& lp,
+  virtual detection_factor_container* add_detection_hypothesis_impl(LP<FMC>& lp,
       const INDEX timestep, const INDEX hypothesis_id, 
       const REAL detection_cost, const REAL appearance_cost, const REAL disappearance_cost, 
       const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges, 
@@ -903,38 +904,35 @@ public:
   {
     using incoming_container_type = typename detection_factor_container::incoming_factor_type;
     const INDEX incoming_size = no_incoming_transition_edges + no_incoming_division_edges + 1;
-    auto* incoming_container = new incoming_container_type(incoming_size);
+    auto* incoming_container = lp.template add_factor<incoming_container_type>(incoming_size);
     auto& incoming_factor = *incoming_container->GetFactor();
     incoming_factor.edges[incoming_size-1] = appearance_cost;
     incoming_factor.detection = 0.5*detection_cost;
-    lp.AddFactor(incoming_container);
 
     using outgoing_container_type = typename detection_factor_container::outgoing_factor_type;
     const INDEX outgoing_size = no_outgoing_transition_edges + no_outgoing_division_edges + 1;
-    auto* outgoing_container = new outgoing_container_type(outgoing_size);
+    auto* outgoing_container = lp.template add_factor<outgoing_container_type>(outgoing_size); 
     auto& outgoing_factor = *outgoing_container->GetFactor();
     outgoing_factor.edges[outgoing_size-1] = disappearance_cost;
     outgoing_factor.detection = 0.5*detection_cost;
-    lp.AddFactor(outgoing_container); 
 
-    auto* m = new DETECTION_MESSAGE_CONTAINER(incoming_container, outgoing_container);
-    lp.AddMessage(m);
+    lp.template add_message<DETECTION_MESSAGE_CONTAINER>(incoming_container, outgoing_container);
 
     return new detection_factor_container({incoming_container, outgoing_container});
   }
 
-  virtual void add_exclusion_constraint_impl(LP& lp, const std::vector<detection_factor_container*> factors) // iterator points to std::array<INDEX,2>
+  virtual void add_exclusion_constraint_impl(LP<FMC>& lp, const std::vector<detection_factor_container*> factors) // iterator points to std::array<INDEX,2>
   {
-    auto* e = new AT_MOST_ONE_CELL_FACTOR_CONTAINER(factors.size());
-    lp.AddFactor(e);
+    auto* e = lp.template add_factor<AT_MOST_ONE_CELL_FACTOR_CONTAINER>(factors.size());
     INDEX msg_idx = 0;
     for(auto* f : factors) {
       auto* f_incoming = f->incoming;
       auto* f_outgoing = f->outgoing;
-      auto* m_incoming = new AT_MOST_ONE_CELL_MESSAGE_CONTAINER_INCOMING(msg_idx, f_incoming, e);
-      auto* m_outgoing = new AT_MOST_ONE_CELL_MESSAGE_CONTAINER_OUTGOING(msg_idx++, f_outgoing, e);
-      lp.AddMessage(m_incoming); 
-      lp.AddMessage(m_outgoing); 
+      
+      lp.template add_message<AT_MOST_ONE_CELL_MESSAGE_CONTAINER_INCOMING>(f_incoming, e, msg_idx);
+      lp.template add_message<AT_MOST_ONE_CELL_MESSAGE_CONTAINER_OUTGOING>(f_outgoing, e, msg_idx++);
+      lp.put_in_same_partition(f,e);
+
       lp.AddFactorRelation(f_incoming, f_outgoing);
 
       //if(f != f_last) {
@@ -950,7 +948,7 @@ public:
     }
   } 
 
-  virtual void add_cell_transition_impl(LP& lp,
+  virtual void add_cell_transition_impl(LP<FMC>& lp,
 		  const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next, const INDEX next_cell, const REAL cost,
 		  const INDEX outgoing_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, 
       const INDEX incoming_edge_index, const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges,
@@ -958,11 +956,10 @@ public:
   {
     auto* f_outgoing = out_cell_factor->outgoing;
     auto* f_incoming = in_cell_factor->incoming;
-    auto* m = new TRANSITION_MESSAGE_CONTAINER(f_outgoing, f_incoming, outgoing_edge_index, incoming_edge_index, false);
-    lp.AddMessage(m);
+    lp.template add_message<TRANSITION_MESSAGE_CONTAINER>(f_outgoing, f_incoming, outgoing_edge_index, incoming_edge_index, false);
   }
 
-  virtual void add_cell_division_impl(LP& lp,
+  virtual void add_cell_division_impl(LP<FMC>& lp,
 		  const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next_1, const INDEX next_cell_1, const INDEX timestep_next_2, const INDEX next_cell_2, const REAL cost,
 		  const INDEX outgoing_edge_index, const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, 
       const INDEX incoming_edge_index_1, const INDEX no_incoming_transition_edges_1, const INDEX no_incoming_division_edges_1, 
@@ -972,10 +969,9 @@ public:
     auto* f_outgoing = out_cell_factor->outgoing;
     auto* f_incoming_1 = in_cell_factor_1->incoming;
     auto* f_incoming_2 = in_cell_factor_2->incoming;
-    auto* m1 = new TRANSITION_MESSAGE_CONTAINER(f_outgoing, f_incoming_1, outgoing_edge_index, incoming_edge_index_1, true);
-    auto* m2 = new TRANSITION_MESSAGE_CONTAINER(f_outgoing, f_incoming_2, outgoing_edge_index, incoming_edge_index_2, true);
-    lp.AddMessage(m1);
-    lp.AddMessage(m2);
+
+    lp.template add_message<TRANSITION_MESSAGE_CONTAINER>(f_outgoing, f_incoming_1, outgoing_edge_index, incoming_edge_index_1, true);
+    lp.template add_message<TRANSITION_MESSAGE_CONTAINER>(f_outgoing, f_incoming_2, outgoing_edge_index, incoming_edge_index_2, true);
   } 
 };
 
@@ -990,6 +986,7 @@ template<typename CELL_TRACKING_CONSTRUCTOR,
 class cell_tracking_mother_machine_constructor : public CELL_TRACKING_CONSTRUCTOR {
 public:
   using CELL_TRACKING_CONSTRUCTOR::CELL_TRACKING_CONSTRUCTOR;
+  using FMC = typename EXIT_CONSTRAINT_FACTOR::FMC;
   template<typename LP_TYPE>
   void add_exit_constraint(LP_TYPE& lp, const INDEX timestep, const INDEX lower_cell_detection, const INDEX upper_cell_detection)
   {
@@ -999,12 +996,9 @@ public:
     //std::cout << "t = " << timestep << ", lower cell = " << lower_cell_detection << ", upper cell = " << upper_cell_detection;
     if(this->detection_factors_[timestep][upper_cell_detection]->GetFactor()->outgoing.size() > 1) { // only if there are outgoing edges which are not exit ones do we need exit constraints
       //std::cout << " add factor";
-      auto* e = new EXIT_CONSTRAINT_FACTOR();
-      lp.AddFactor(e);
-      auto* m_lower = new EXIT_CONSTRAINT_LOWER_MESSAGE(this->detection_factors_[timestep][lower_cell_detection], e);
-      lp.AddMessage(m_lower);
-      auto* m_upper = new EXIT_CONSTRAINT_UPPER_MESSAGE(this->detection_factors_[timestep][upper_cell_detection], e);
-      lp.AddMessage(m_upper); 
+      auto* e = lp.template add_factor<EXIT_CONSTRAINT_FACTOR>();
+      lp.template add_message<EXIT_CONSTRAINT_LOWER_MESSAGE>(this->detection_factors_[timestep][lower_cell_detection], e);
+      lp.template add_message<EXIT_CONSTRAINT_UPPER_MESSAGE>(this->detection_factors_[timestep][upper_cell_detection], e);
     }
     //std::cout << "\n";
   } 
@@ -1210,6 +1204,8 @@ namespace cell_tracking_parser_mother_machine {
       auto& cell_tracking_constructor = s.template GetProblemConstructor<0>();
       auto& lp = s.GetLP();
 
+      //begin(lp);
+
       //std::cout << "exclusion constraints disabled\n";
       cell_tracking_constructor.set_number_of_timesteps( i.cell_detection_stat.size() );
       for(INDEX t=0; t<i.cell_detection_stat.size(); ++t) {
@@ -1270,6 +1266,8 @@ namespace cell_tracking_parser_mother_machine {
       //    assert( std::get<3>(i.cell_detection_stat[t][j]) == tc[t][j][1] );
       //  }
       //}
+
+       end(lp);
    }
 
    // we assume problem with single constructor
@@ -1574,6 +1572,26 @@ namespace cell_tracking_parser_2d {
       auto& cell_tracking_constructor = s.template GetProblemConstructor<0>();
       auto& lp = s.GetLP();
 
+      std::transform(i.cell_detection_stat.begin(), i.cell_detection_stat.end(),
+              std::back_inserter(cell_tracking_constructor.cumulative_sum_cell_detection_factors),
+              [](auto timestep_array) { return timestep_array.size(); }
+              );
+      std::partial_sum(cell_tracking_constructor.cumulative_sum_cell_detection_factors.begin(), cell_tracking_constructor.cumulative_sum_cell_detection_factors.end(), cell_tracking_constructor.cumulative_sum_cell_detection_factors.begin());
+      cell_tracking_constructor.cumulative_sum_cell_detection_factors.back() = 0;
+      std::rotate(cell_tracking_constructor.cumulative_sum_cell_detection_factors.begin(), cell_tracking_constructor.cumulative_sum_cell_detection_factors.end()-1, cell_tracking_constructor.cumulative_sum_cell_detection_factors.end());
+      assert(cell_tracking_constructor.cumulative_sum_cell_detection_factors[0] == 0);
+
+      const auto no_detection_hypotheses = std::accumulate(i.cell_detection_stat.begin(), i.cell_detection_stat.end(), 0, [](auto sum, auto timestep_array) { return sum + timestep_array.size(); });
+      std::size_t no_cell_transitions = 0;
+      std::size_t no_cell_divisions = 0;
+      for(const auto& timestep_array : i.cell_detection_stat) {
+          for(const auto& stat : timestep_array) {
+              no_cell_transitions += stat.no_outgoing_transition_edges;
+              no_cell_divisions += stat.no_outgoing_division_edges;
+          }
+      }
+      cell_tracking_constructor.begin(lp, no_detection_hypotheses, no_cell_transitions, no_cell_divisions);
+
       //std::cout << "exclusion constraints disabled\n";
       cell_tracking_constructor.set_number_of_timesteps( i.cell_detection_stat.size() );
       for(INDEX t=0; t<i.cell_detection_stat.size(); ++t) {
@@ -1589,6 +1607,7 @@ namespace cell_tracking_parser_2d {
           cell_tracking_constructor.add_detection_hypothesis( lp, t, n, detection_cost, appearance_cost, disappearance_cost, no_incoming_transition_edges, no_incoming_division_edges, no_outgoing_transition_edges, no_outgoing_division_edges);
         }
       }
+
       for(const auto& conflict_set : i.conflicts) {
         cell_tracking_constructor.add_exclusion_constraint(lp, conflict_set.begin(), conflict_set.end()); 
         //cell_tracking_constructor.register_exclusion_constraint(conflict_set.begin(), conflict_set.end() ); 
@@ -1621,7 +1640,7 @@ namespace cell_tracking_parser_2d {
       //  }
       //}
 
-      cell_tracking_constructor.order_factors(lp);
+      cell_tracking_constructor.end(lp);
    }
 
    // we assume problem with single constructor

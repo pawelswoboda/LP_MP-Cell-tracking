@@ -9,12 +9,13 @@ preamble = """
 """
 
 solvers = [
-    solver(preamble, 'FMC_CELL_TRACKING_MOTHER_MACHINE', 'LP', 'cell_tracking_parser_mother_machine::ParseProblemMotherMachine', "cell_tracking_mother_machine.cpp"),
-    solver(preamble, 'FMC_CELL_TRACKING', 'LP', 'cell_tracking_parser_2d::ParseProblem', "cell_tracking.cpp"),
-    solver(preamble, 'FMC_CELL_TRACKING_WITH_DIVISION_DISTANCE', 'LP', 'cell_tracking_parser_2d::parse_problem_with_division_distance', "cell_tracking_with_division_distance.cpp"),
-    solver(preamble, 'FMC_CELL_TRACKING_DUPLICATE_EDGES', 'LP', 'cell_tracking_parser_2d::ParseProblem', "cell_tracking_duplicate_edges.cpp"),
-    solver(preamble, 'FMC_CELL_TRACKING_DIVISION_DISTANCE_DUPLICATE_EDGES', 'LP', 'cell_tracking_parser_2d::parse_problem_with_division_distance', "cell_tracking_division_distance_duplicate_edges.cpp"),
-    solver(preamble, 'FMC_CELL_TRACKING_FINE_DECOMPOSITION', 'LP', 'cell_tracking_parser_2d::ParseProblem', "cell_tracking_fine_decomposition.cpp")
+    solver(preamble, 'FMC_CELL_TRACKING_MOTHER_MACHINE', 'LP<FMC_CELL_TRACKING_MOTHER_MACHINE>', 'cell_tracking_parser_mother_machine::ParseProblemMotherMachine', "cell_tracking_mother_machine.cpp"),
+    solver(preamble, 'FMC_CELL_TRACKING', 'LP<FMC_CELL_TRACKING>', 'cell_tracking_parser_2d::ParseProblem', "cell_tracking.cpp"),
+    solver(preamble, 'FMC_CELL_TRACKING_FLOW', 'LP<FMC_CELL_TRACKING_FLOW>', 'cell_tracking_parser_2d::ParseProblem', "cell_tracking_flow.cpp"),
+    solver(preamble, 'FMC_CELL_TRACKING_WITH_DIVISION_DISTANCE', 'LP<FMC_CELL_TRACKING_WITH_DIVISION_DISTANCE>', 'cell_tracking_parser_2d::parse_problem_with_division_distance', "cell_tracking_with_division_distance.cpp"),
+    solver(preamble, 'FMC_CELL_TRACKING_DUPLICATE_EDGES', 'LP<FMC_CELL_TRACKING_DUPLICATE_EDGES>', 'cell_tracking_parser_2d::ParseProblem', "cell_tracking_duplicate_edges.cpp"),
+    solver(preamble, 'FMC_CELL_TRACKING_DIVISION_DISTANCE_DUPLICATE_EDGES', 'LP<FMC_CELL_TRACKING_DIVISION_DISTANCE_DUPLICATE_EDGES>', 'cell_tracking_parser_2d::parse_problem_with_division_distance', "cell_tracking_division_distance_duplicate_edges.cpp"),
+    solver(preamble, 'FMC_CELL_TRACKING_FINE_DECOMPOSITION', 'LP<FMC_CELL_TRACKING_FINE_DECOMPOSITION>', 'cell_tracking_parser_2d::ParseProblem', "cell_tracking_fine_decomposition.cpp")
     ]
 
 for e in solvers:

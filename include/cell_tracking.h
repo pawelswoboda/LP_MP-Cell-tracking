@@ -5,6 +5,7 @@
 #include "detection_factor.hxx"
 #include "detection_factors_fine_decomposition.hxx"
 #include "cell_tracking_constructor.hxx"
+#include "cell_detection_flow_factor.hxx"
 #include "LP_MP.h"
 
 namespace LP_MP {
@@ -14,12 +15,14 @@ struct FMC_CELL_TRACKING {
 
   using detection_factor_container = FactorContainer<detection_factor, FMC_CELL_TRACKING, 0, true>;
   using at_most_one_hypothesis_container = FactorContainer<at_most_one_cell_factor, FMC_CELL_TRACKING, 1, false>;
-
-  using transition_message_container = MessageContainer<transition_message, 0, 0, message_passing_schedule::full, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING, 0>;
-  using at_most_one_cell_message_container = MessageContainer<at_most_one_cell_message, 0, 1, message_passing_schedule::left, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING, 1>;
-
   using FactorList = meta::list<detection_factor_container, at_most_one_hypothesis_container>;
+
+  using transition_message_container = MessageContainer<transition_message, 0, 0, message_passing_schedule::full, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING, 0, 4, 4>;
+  using at_most_one_cell_message_container = MessageContainer<at_most_one_cell_message, 0, 1, message_passing_schedule::left, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING, 1, 3, 3>;
   using MessageList = meta::list<transition_message_container, at_most_one_cell_message_container>;
+  //using transition_message_container = MessageContainer<transition_message, 0, 0, message_passing_schedule::full, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING, 1, 4, 4>;
+  //using at_most_one_cell_message_container = MessageContainer<at_most_one_cell_message, 0, 1, message_passing_schedule::left, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING, 0, 3, 3>;
+  //using MessageList = meta::list<at_most_one_cell_message_container, transition_message_container >;
 
   using base_constructor = basic_cell_tracking_constructor< detection_factor_container >;
   using exclusion_constructor = cell_tracking_exclusion_constructor< base_constructor, at_most_one_hypothesis_container, at_most_one_cell_message_container >; 
@@ -27,6 +30,28 @@ struct FMC_CELL_TRACKING {
   using constructor = cell_tracking_constructor<transition_constructor>;
 
   using ProblemDecompositionList = meta::list<constructor>; 
+};
+
+struct FMC_CELL_TRACKING_FLOW {
+  constexpr static char* name = "Cell tracking";
+
+  using detection_factor_container = FactorContainer<detection_factor, FMC_CELL_TRACKING_FLOW, 0, true>;
+  using at_most_one_hypothesis_container = FactorContainer<at_most_one_cell_factor, FMC_CELL_TRACKING_FLOW, 1, false>;
+  using flow_factor_container = FactorContainer<cell_detection_flow_factor, FMC_CELL_TRACKING_FLOW, 2, false>;
+  using FactorList = meta::list<detection_factor_container, at_most_one_hypothesis_container, flow_factor_container>;
+
+  using transition_message_container = MessageContainer<transition_message, 0, 0, message_passing_schedule::full, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING_FLOW, 0, 4, 4>;
+  using at_most_one_cell_message_container = MessageContainer<at_most_one_cell_message, 0, 1, message_passing_schedule::left, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING_FLOW, 1, 3, 3>;
+  using flow_factor_message_container = MessageContainer< cell_detection_flow_message, 0, 2, message_passing_schedule::right, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING_FLOW, 2, 1, 20>;
+  using MessageList = meta::list<transition_message_container, at_most_one_cell_message_container, flow_factor_message_container>;
+
+  using base_constructor = basic_cell_tracking_constructor< detection_factor_container >;
+  using exclusion_constructor = cell_tracking_exclusion_constructor< base_constructor, at_most_one_hypothesis_container, at_most_one_cell_message_container >; 
+  using transition_constructor = transition_message_cell_tracking_constructor< exclusion_constructor, transition_message_container>;
+  using constructor = cell_tracking_constructor<transition_constructor>;
+  using flow_constructor = cell_detection_flow_constructor< constructor, flow_factor_container, flow_factor_message_container >;
+
+  using ProblemDecompositionList = meta::list<flow_constructor>; 
 };
 
 struct FMC_CELL_TRACKING_DUPLICATE_EDGES {
