@@ -40,9 +40,9 @@ struct FMC_CELL_TRACKING_FLOW {
   using flow_factor_container = FactorContainer<cell_detection_flow_factor, FMC_CELL_TRACKING_FLOW, 2, false>;
   using FactorList = meta::list<detection_factor_container, at_most_one_hypothesis_container, flow_factor_container>;
 
-  using transition_message_container = MessageContainer<transition_message, 0, 0, message_passing_schedule::full, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING_FLOW, 0, 4, 4>;
-  using at_most_one_cell_message_container = MessageContainer<at_most_one_cell_message, 0, 1, message_passing_schedule::left, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING_FLOW, 1, 3, 3>;
-  using flow_factor_message_container = MessageContainer< cell_detection_flow_message, 0, 2, message_passing_schedule::right, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING_FLOW, 2, 1, 20>;
+  using transition_message_container = MessageContainer<transition_message, 0, 0, message_passing_schedule::none, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING_FLOW, 0, 4, 4>;
+  using at_most_one_cell_message_container = MessageContainer<at_most_one_cell_message, 0, 1, message_passing_schedule::right, variableMessageNumber, variableMessageNumber, FMC_CELL_TRACKING_FLOW, 1, 3, 3>;
+  using flow_factor_message_container = MessageContainer< cell_detection_flow_message, 0, 2, message_passing_schedule::right, 1, variableMessageNumber, FMC_CELL_TRACKING_FLOW, 2, 1, 20>;
   using MessageList = meta::list<transition_message_container, at_most_one_cell_message_container, flow_factor_message_container>;
 
   using base_constructor = basic_cell_tracking_constructor< detection_factor_container >;

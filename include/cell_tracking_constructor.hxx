@@ -185,22 +185,22 @@ public:
   template<typename LP_TYPE>
   void add_cell_transition(LP_TYPE& lp, const INDEX timestep_prev, const INDEX prev_cell, const INDEX timestep_next, const INDEX next_cell, const REAL cost) 
   {
-    auto* out_cell_factor = this->detection_factors_[timestep_prev][prev_cell];
-    const INDEX outgoing_edge_index  = this->tc_.next_outgoing_transition_edge(timestep_prev, prev_cell);//current_transition_no[timestep_prev][prev_cell][1];
-    const INDEX no_outgoing_transition_edges = this->tc_.edges[timestep_prev][prev_cell].no_outgoing_transition_edges;
-    const INDEX no_outgoing_division_edges = this->tc_.edges[timestep_prev][prev_cell].no_outgoing_division_edges;
-    out_cell_factor->GetFactor()->set_outgoing_transition_cost(no_outgoing_transition_edges, no_outgoing_division_edges, outgoing_edge_index, 0.5*cost);
+      auto* out_cell_factor = this->detection_factors_[timestep_prev][prev_cell];
+      const INDEX outgoing_edge_index  = this->tc_.next_outgoing_transition_edge(timestep_prev, prev_cell);//current_transition_no[timestep_prev][prev_cell][1];
+      const INDEX no_outgoing_transition_edges = this->tc_.edges[timestep_prev][prev_cell].no_outgoing_transition_edges;
+      const INDEX no_outgoing_division_edges = this->tc_.edges[timestep_prev][prev_cell].no_outgoing_division_edges;
+      out_cell_factor->GetFactor()->set_outgoing_transition_cost(no_outgoing_transition_edges, no_outgoing_division_edges, outgoing_edge_index, 0.5*cost);
 
-    auto* in_cell_factor = this->detection_factors_[timestep_next][next_cell];
-    const INDEX incoming_edge_index = this->tc_.next_incoming_transition_edge(timestep_next, next_cell);//current_transition_no[timestep_next][next_cell][0];
-    const INDEX no_incoming_transition_edges = this->tc_.edges[timestep_next][next_cell].no_incoming_transition_edges;
-    const INDEX no_incoming_division_edges = this->tc_.edges[timestep_next][next_cell].no_incoming_division_edges;
-    in_cell_factor->GetFactor()->set_incoming_transition_cost(no_incoming_transition_edges, no_incoming_division_edges, incoming_edge_index, 0.5*cost);
+      auto* in_cell_factor = this->detection_factors_[timestep_next][next_cell];
+      const INDEX incoming_edge_index = this->tc_.next_incoming_transition_edge(timestep_next, next_cell);//current_transition_no[timestep_next][next_cell][0];
+      const INDEX no_incoming_transition_edges = this->tc_.edges[timestep_next][next_cell].no_incoming_transition_edges;
+      const INDEX no_incoming_division_edges = this->tc_.edges[timestep_next][next_cell].no_incoming_division_edges;
+      in_cell_factor->GetFactor()->set_incoming_transition_cost(no_incoming_transition_edges, no_incoming_division_edges, incoming_edge_index, 0.5*cost);
 
-    this->add_cell_transition_impl(lp, timestep_prev, prev_cell, timestep_next, next_cell, cost, 
-        outgoing_edge_index, this->tc_.edges[timestep_prev][prev_cell].no_outgoing_transition_edges, this->tc_.edges[timestep_prev][prev_cell].no_outgoing_division_edges,
-        incoming_edge_index, this->tc_.edges[timestep_next][next_cell].no_incoming_transition_edges, this->tc_.edges[timestep_next][next_cell].no_incoming_division_edges,
-        out_cell_factor, in_cell_factor); 
+      this->add_cell_transition_impl(lp, timestep_prev, prev_cell, timestep_next, next_cell, cost, 
+              outgoing_edge_index, this->tc_.edges[timestep_prev][prev_cell].no_outgoing_transition_edges, this->tc_.edges[timestep_prev][prev_cell].no_outgoing_division_edges,
+              incoming_edge_index, this->tc_.edges[timestep_next][next_cell].no_incoming_transition_edges, this->tc_.edges[timestep_next][next_cell].no_incoming_division_edges,
+              out_cell_factor, in_cell_factor); 
   }
 
   template<typename LP_TYPE>
@@ -275,7 +275,11 @@ public:
   }
 
   virtual void begin(LP<FMC>& lp, const std::size_t no_cell_detection_hypotheses, const std::size_t no_transitions, const std::size_t no_divisions)
-  {}
+  {
+        if(debug()) {
+            std::cout << "no cells = " << no_cell_detection_hypotheses << ", no transitions = " << no_transitions << ", no divisions = " << no_divisions << "\n";
+        } 
+  }
 
   virtual void end(LP<FMC>& lp)
   {
@@ -1454,6 +1458,7 @@ namespace cell_tracking_parser_2d {
          INDEX timestep; s >> timestep;
          INDEX hypothesis_id; s >> hypothesis_id;
          REAL cost; s >> cost;
+         assert(timestep < i.cell_detection_stat.size() && hypothesis_id < i.cell_detection_stat[timestep].size());
          i.cell_detection_stat[timestep][hypothesis_id].appearance_cost = cost;
          //std::cout << "APP " << timestep << " " << hypothesis_id << " " << cost << "\n";
        }

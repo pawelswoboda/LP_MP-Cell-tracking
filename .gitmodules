@@ -1,7 +1,6 @@
 [submodule "external/LP_MP"]
 	path = external/LP_MP
 	url = https://github.com/pawelswoboda/LP_MP.git
-	branch = frank_wolfe
 [submodule "external/PEGTL"]
 	path = external/PEGTL
 	url = https://github.com/taocpp/PEGTL.git

@@ -34,14 +34,19 @@ public:
     : 
       detection(detection_cost),
       incoming(no_incoming_transition_edges + no_incoming_division_edges + 1, 0.0),
-      outgoing(no_outgoing_transition_edges + no_outgoing_division_edges + 1, 0.0)
+      outgoing(no_outgoing_transition_edges + no_outgoing_division_edges + 1, 0.0),
+      min_incoming_dirty_(true),
+      min_outgoing_dirty_(true)
   {
+      std::fill(incoming.begin(), incoming.end(), std::numeric_limits<REAL>::infinity());
+      std::fill(outgoing.begin(), outgoing.end(), std::numeric_limits<REAL>::infinity());
     incoming[ no_incoming_transition_edges + no_incoming_division_edges ] = appearance_cost;
     outgoing[ no_outgoing_transition_edges + no_outgoing_division_edges ] = disappearance_cost;
     //std::cout << "no incoming = " << incoming.size() << ", no outgoing = " << outgoing.size() << "\n";
   }
 
-  REAL min_detection_cost() const {
+  REAL min_detection_cost() const 
+  {
     //std::cout << pot_[0] << " : ";
     //for(auto it=incoming.begin(); it!= incoming.end(); ++it) std::cout << *it << ",";
     //std:cout << " : ";
@@ -52,8 +57,9 @@ public:
     assert(outgoing.size() > 0);
     return detection + min_incoming() + min_outgoing();
   }
-
-  void MaximizePotentialAndComputePrimal() {
+  
+  void MaximizePotentialAndComputePrimal() 
+  {
     if(incoming_edge_ < incoming.size() && outgoing_edge_ < outgoing.size()) {
       return;
     }
@@ -98,7 +104,15 @@ public:
     }
   }
   REAL LowerBound() const {
-    return std::min(min_detection_cost(), REAL(0.0));
+      // check whether every entry has been set
+      //std::cout << detection << "; ";
+      //for(auto x : incoming) { std::cout << x << ","; }
+      //std::cout << ";";
+      //for(auto x : outgoing) { std::cout << x << ","; }
+      //std::cout << "\n";
+      assert(*std::max_element(incoming.begin(), incoming.end()) < std::numeric_limits<REAL>::infinity());
+      assert(*std::max_element(outgoing.begin(), outgoing.end()) < std::numeric_limits<REAL>::infinity());
+      return std::min(min_detection_cost(), REAL(0.0));
   }
 
   //REAL& detection_cost() { return *pot_; }
@@ -125,22 +139,22 @@ public:
 
   void set_incoming_transition_cost(const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges, const INDEX edge_index, const REAL cost) 
   { 
-    assert(incoming[edge_index] == 0.0); 
+    assert(incoming[edge_index] == std::numeric_limits<REAL>::infinity()); 
     incoming[edge_index] = cost; 
   } 
   void set_outgoing_transition_cost(const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, const INDEX edge_index, const REAL cost) 
   { 
-    assert(outgoing[edge_index] == 0.0);
+    assert(outgoing[edge_index] == std::numeric_limits<REAL>::infinity());
     outgoing[edge_index] = cost;
   }
   void set_incoming_division_cost(const INDEX no_incoming_transition_edges, const INDEX no_incoming_division_edges, const INDEX edge_index, const REAL cost) 
   { 
-    assert(incoming[no_incoming_transition_edges + edge_index] == 0.0);
+    assert(incoming[no_incoming_transition_edges + edge_index] == std::numeric_limits<REAL>::infinity());
     incoming[no_incoming_transition_edges + edge_index] = cost; 
   } 
   void set_outgoing_division_cost(const INDEX no_outgoing_transition_edges, const INDEX no_outgoing_division_edges, const INDEX edge_index, const REAL cost) 
   { 
-    assert(outgoing[no_outgoing_transition_edges + edge_index] == 0.0);
+    assert(outgoing[no_outgoing_transition_edges + edge_index] == std::numeric_limits<REAL>::infinity());
     outgoing[no_outgoing_transition_edges + edge_index] = cost; 
   }
 
@@ -993,8 +1007,6 @@ private:
 // simplex x1 + ... + xn <= 1
 // to account for overlapping detections: only one can be active
 class at_most_one_cell_factor : public vector<REAL> {
-//class at_most_one_cell_factor : public small_vector<REAL,4> {
-  // to do: save minimum and second minimum value
 
   friend class at_most_one_cell_message;
 
@@ -1008,11 +1020,13 @@ public:
    //at_most_one_cell_factor(const INDEX size) : small_vector<REAL,4>(size, 0.0)
    {}
 
-   REAL LowerBound() const {
+   REAL LowerBound() const 
+   {
      return std::min(REAL(0.0), this->min()); //*std::min_element(this->begin(), this->end()));
    }
 
-   REAL EvaluatePrimal() const {
+   REAL EvaluatePrimal() const 
+   {
      //if(primal_ == no_primal_decision) { primal_ = no_primal_active; }
 
      if(primal_ < size()) {
@@ -1186,7 +1200,8 @@ public:
     //assert(std::distance(msg_begin, msg_end) <= rightFactor.size()); // std::distance does not work currently on the message iterator.
     std::vector<bool> edge_taken(rightFactor.size(), false);
     for(auto msg_it=msg_begin; msg_it!=msg_end; ++msg_it) {
-        const auto idx = (*msg_it).GetMessageOp().at_most_one_cell_factor_index_;
+        auto& msg = (*msg_it).GetMessageOp();
+        const auto idx = msg.at_most_one_cell_factor_index_;
         assert( idx < edge_taken.size() );
         assert(edge_taken[ idx ] == false);
         edge_taken[ idx ] = true;
