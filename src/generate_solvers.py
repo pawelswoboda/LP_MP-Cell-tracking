@@ -5,6 +5,7 @@ solver = namedtuple("solver_info", "preamble FMC LP parse_fun filename")
 
 preamble = """
 #include "cell_tracking.h"
+#include "solver.hxx"
 #include "visitors/standard_visitor.hxx"
 """
 
@@ -22,7 +23,9 @@ for e in solvers:
    f = open(e.filename,'w')
    f.write(e.preamble)
    f.write("\nusing namespace LP_MP;\n\nint main(int argc, char** argv) {\nSolver<")
-   f.write(e.FMC + "," + e.LP + ",StandardVisitor> solver(argc,argv);\n")
-   f.write("solver.ReadProblem(" + e.parse_fun + "<Solver<" + e.FMC + "," + e.LP + ",StandardVisitor>>);\n")
+   f.write( e.LP + ",StandardVisitor> solver(argc,argv);\n")
+   f.write("auto input = cell_tracking_parser_2d::parse_file(solver.get_input_file());\n")
+   f.write("auto& c = solver.template GetProblemConstructor<0>();\n")
+   f.write("c.construct(input);\n")
    f.write("return solver.Solve();\n}")
    f.close()

@@ -1,11 +1,14 @@
 
 #include "cell_tracking.h"
+#include "solver.hxx"
 #include "visitors/standard_visitor.hxx"
 
 using namespace LP_MP;
 
 int main(int argc, char** argv) {
-Solver<FMC_CELL_TRACKING_WITH_DIVISION_DISTANCE,LP<FMC_CELL_TRACKING_WITH_DIVISION_DISTANCE>,StandardVisitor> solver(argc,argv);
-solver.ReadProblem(cell_tracking_parser_2d::parse_problem_with_division_distance<Solver<FMC_CELL_TRACKING_WITH_DIVISION_DISTANCE,LP<FMC_CELL_TRACKING_WITH_DIVISION_DISTANCE>,StandardVisitor>>);
+Solver<LP<FMC_CELL_TRACKING_WITH_DIVISION_DISTANCE>,StandardVisitor> solver(argc,argv);
+auto input = cell_tracking_parser_2d::parse_file(solver.get_input_file());
+auto& c = solver.template GetProblemConstructor<0>();
+c.construct(input);
 return solver.Solve();
 }
